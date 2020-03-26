@@ -138,6 +138,21 @@ const unsigned char fctsupported[] = {
 #define T35  5
 #define  MAX_BUFFER  64	//!< maximum size for the communication buffer in bytes
 
+#ifdef DEBUG
+#define PRINTHEX(d,l)  printHex(d,l)
+#if defined(UBRR1H)
+#define PRINT(...)     Serial1.print(__VA_ARGS__)
+#define PRINTLN(...)   Serial1.println(__VA_ARGS__)
+#else
+#define PRINT(...)     Serial.print(__VA_ARGS__)
+#define PRINTLN(...)   Serial.println(__VA_ARGS__)
+#endif
+#else
+#define PRINTHEX(d,l)
+#define PRINT(...)
+#define PRINTLN(...)
+#endif
+
 /**
  * @class Modbus 
  * @brief
@@ -177,6 +192,10 @@ protected:
   int8_t process_FC15( uint16_t *regs, uint8_t u8size ); 
   int8_t process_FC16( uint16_t *regs, uint8_t u8size ); 
   void buildException( uint8_t u8exception ); // build exception message
+
+#ifdef DEBUG
+  void printHex(unsigned char* data, int len);
+#endif
 
 public:
   Modbus(); 

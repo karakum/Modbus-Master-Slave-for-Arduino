@@ -39,6 +39,15 @@
 
 #include "ModbusRtu.h"
 
+#ifdef DEBUG
+void Modbus::printHex(unsigned char* data, int len) {
+  for (int i = 0; i < len; i++) {
+    PRINT(data[i], HEX);
+    PRINT(" ");
+  }
+}
+#endif
+
 /* _____PUBLIC FUNCTIONS_____________________________________________________ */
 
 /**
@@ -541,6 +550,8 @@ int8_t Modbus::getRxBuffer() {
       }
     }
   }
+  PRINTHEX(au8Buffer, u8BufferSize);
+  PRINTLN();
 
   // try to find request
   for (unsigned char i = 0; i < u8BufferSize; i++) {
