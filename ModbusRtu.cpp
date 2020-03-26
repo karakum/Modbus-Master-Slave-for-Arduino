@@ -457,7 +457,7 @@ int8_t Modbus::poll( uint16_t *regs, uint8_t u8size ) {
   if (au8Buffer[ ID ] != u8id) return 0;
 
   // validate message: CRC, FCT, address and size
-  uint8_t u8exception = validateRequest();
+  uint8_t u8exception = validateRequest(i8state);
   if (u8exception > 0) {
     if (u8exception != NO_REPLY) {
       buildException( u8exception );
@@ -530,25 +530,52 @@ int8_t Modbus::getRxBuffer() {
 
   if (u8txenpin > 1) digitalWrite( u8txenpin, LOW );
 
-  u8BufferSize = 0;
-  while ( port->available() ) {
-    au8Buffer[ u8BufferSize ] = port->read();
-    u8BufferSize ++;
+  if(u8BufferSize < MAX_BUFFER) {
+    while ( port->available() ) {
+      au8Buffer[ u8BufferSize ] = port->read();
+      u8BufferSize ++;
 
-    if (u8BufferSize >= MAX_BUFFER) bBuffOverflow = true;
-    if ((u8BufferSize == 8 && au8Buffer[1] >= 1 && au8Buffer[1] <= 6) ||
-        ((au8Buffer[1] == 15 || au8Buffer[1] == 16) && u8BufferSize > 6 && u8BufferSize == (7 + au8Buffer[6]))
-       ) {
-      break;
+      if (u8BufferSize >= MAX_BUFFER) {
+        bBuffOverflow = true;
+        break;
+      }
     }
   }
-  u16InCnt++;
+
+  // try to find request
+  for (unsigned char i = 0; i < u8BufferSize; i++) {
+    int len = u8BufferSize - i;
+    if(len > 7) {
+      uint8_t waitLen = 0;
+      if( (au8Buffer[i + 1] >= 1 && au8Buffer[i + 1] <= 6) ) {
+        waitLen = 8;
+      } else if( ((au8Buffer[i + 1] == 15 || au8Buffer[i + 1] == 16) && len > 6 && len >= (9 + au8Buffer[i + 6])) ) {
+        waitLen = 9 + au8Buffer[i + 6];
+      }
+      if (waitLen > 0) {
+        uint8_t checkRes = validateRequest(waitLen, i);
+        if (checkRes != NO_REPLY || checkRes == 0) { // packet wellformed
+          if(i > 0) { // cut off start
+            for(unsigned char k=0; k < len; k++) {
+              au8Buffer[k] = au8Buffer[i + k];
+            }
+            u8BufferSize = len;
+          }
+          bBuffOverflow = false;
+          u16InCnt++;
+
+          return waitLen;
+        }
+      }
+    }
+  }
 
   if (bBuffOverflow) {
     u16errCnt++;
+    u8BufferSize = 0;
     return ERR_BUFF_OVERFLOW;
   }
-  return u8BufferSize;
+  return 0;
 }
 
 /**
@@ -650,11 +677,11 @@ void Modbus::sendTxBuffer() {
  * @return uint16_t calculated CRC value for the message
  * @ingroup buffer
  */
-uint16_t Modbus::calcCRC(uint8_t u8length) {
+uint16_t Modbus::calcCRC(uint8_t u8length, uint8_t offset) {
   unsigned int temp, temp2, flag;
   temp = 0xFFFF;
   for (unsigned char i = 0; i < u8length; i++) {
-    temp = temp ^ au8Buffer[i];
+    temp = temp ^ au8Buffer[i + offset];
     for (unsigned char j = 1; j <= 8; j++) {
       flag = temp & 0x0001;
       temp >>=1;
@@ -678,12 +705,12 @@ uint16_t Modbus::calcCRC(uint8_t u8length) {
  * @return 0 if OK, EXCEPTION if anything fails
  * @ingroup buffer
  */
-uint8_t Modbus::validateRequest() {
+uint8_t Modbus::validateRequest(uint8_t len, uint8_t offset) {
   // check message crc vs calculated crc
   uint16_t u16MsgCRC = 
-    ((au8Buffer[u8BufferSize - 2] << 8) 
-    | au8Buffer[u8BufferSize - 1]); // combine the crc Low & High bytes
-  if ( calcCRC( u8BufferSize-2 ) != u16MsgCRC ) {
+    ((au8Buffer[offset + len - 2] << 8) 
+    | au8Buffer[offset + len - 1]); // combine the crc Low & High bytes
+  if (calcCRC(len - 2, offset) != u16MsgCRC) {
     u16errCnt ++;
     return NO_REPLY;
   }
@@ -691,7 +718,7 @@ uint8_t Modbus::validateRequest() {
   // check fct code
   boolean isSupported = false;
   for (uint8_t i = 0; i< sizeof( fctsupported ); i++) {
-    if (fctsupported[i] == au8Buffer[FUNC]) {
+    if (fctsupported[i] == au8Buffer[FUNC + offset]) {
       isSupported = 1;
       break;
     }
@@ -1027,15 +1054,12 @@ int8_t Modbus::process_FC15( uint16_t *regs, uint8_t u8size ) {
  */
 int8_t Modbus::process_FC16( uint16_t *regs, uint8_t u8size ) {
   uint8_t u8func = au8Buffer[ FUNC ];  // get the original FUNC code
-  uint8_t u8StartAdd = au8Buffer[ ADD_HI ] << 8 | au8Buffer[ ADD_LO ];
-  uint8_t u8regsno = au8Buffer[ NB_HI ] << 8 | au8Buffer[ NB_LO ];
+  uint8_t u8StartAdd = word( au8Buffer[ ADD_HI ], au8Buffer[ ADD_LO ] );
+  uint8_t u8regsno = word( au8Buffer[ NB_HI ], au8Buffer[ NB_LO ] );
   uint8_t u8CopyBufferSize;
   uint8_t i;
   uint16_t temp;
 
-  // build header
-  au8Buffer[ NB_HI ]   = 0;
-  au8Buffer[ NB_LO ]   = u8regsno;
   u8BufferSize         = RESPONSE_SIZE;
 
   // write registers

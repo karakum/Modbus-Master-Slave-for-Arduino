@@ -165,9 +165,9 @@ protected:
   virtual void sendTxBuffer(); 
   virtual int8_t getRxBuffer(); 
   virtual int getRxBufferAvailable();
-  uint16_t calcCRC(uint8_t u8length);
+  uint16_t calcCRC(uint8_t u8length, uint8_t offset = 0);
   uint8_t validateAnswer();
-  uint8_t validateRequest(); 
+  uint8_t validateRequest(uint8_t len, uint8_t offset = 0); 
   void get_FC1(); 
   void get_FC3(); 
   int8_t process_FC1( uint16_t *regs, uint8_t u8size ); 
